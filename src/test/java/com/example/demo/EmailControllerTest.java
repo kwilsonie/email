@@ -9,11 +9,13 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -25,19 +27,23 @@ class EmailControllerTest {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
-    @MockBean  EmailRepository emailRepository;
+    @MockBean  EmailService emailService;   // controller delegates here; no repository needed
 
-    private Email savedEmail;
+    private EmailResponse mockResponse;
 
     @BeforeEach
     void setUp() {
-        savedEmail = new Email();
-        savedEmail.setId(1L);
-        savedEmail.setFromAddress("from@example.com");
-        savedEmail.setToAddress("to@example.com");
-        savedEmail.setSubject("Hello");
-        savedEmail.setBody("World");
-        savedEmail.setBcc("secret@example.com"); // BCC stored but must never appear in responses
+        // Build a realistic EmailResponse via the factory method so status fields are included.
+        Email email = new Email();
+        email.setId(1L);
+        email.setFromAddress("from@example.com");
+        email.setToAddress("to@example.com");
+        email.setSubject("Hello");
+        email.setBody("World");
+        email.setBcc("secret@example.com"); // must never appear in responses
+        email.setStatus(EmailStatus.QUEUED);
+        email.setStatusUpdatedAt(Instant.now());
+        mockResponse = EmailResponse.from(email);
     }
 
     // -------------------------------------------------------------------------
@@ -45,8 +51,8 @@ class EmailControllerTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void postEmail_validRequest_returns201WithEmailResponse() throws Exception {
-        when(emailRepository.save(any(Email.class))).thenReturn(savedEmail);
+    void postEmail_validRequest_returns201WithQueuedStatus() throws Exception {
+        when(emailService.createEmail(any(EmailRequest.class))).thenReturn(mockResponse);
 
         EmailRequest request = new EmailRequest();
         request.setFromAddress("from@example.com");
@@ -62,8 +68,7 @@ class EmailControllerTest {
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.fromAddress").value("from@example.com"))
                 .andExpect(jsonPath("$.toAddress").value("to@example.com"))
-                .andExpect(jsonPath("$.subject").value("Hello"))
-                .andExpect(jsonPath("$.body").value("World"))
+                .andExpect(jsonPath("$.status").value("QUEUED"))
                 // BCC must never appear in any response
                 .andExpect(jsonPath("$.bcc").doesNotExist());
     }
@@ -94,7 +99,9 @@ class EmailControllerTest {
 
     @Test
     void getEmail_unknownId_returns404WithErrorShape() throws Exception {
-        when(emailRepository.findById(99L)).thenReturn(Optional.empty());
+        when(emailService.getEmailById(99L))
+                .thenThrow(new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Email not found with id: 99"));
 
         mockMvc.perform(get("/email/99"))
                 .andExpect(status().isNotFound())
@@ -111,8 +118,8 @@ class EmailControllerTest {
 
     @Test
     void getEmails_withPageAndSize_returnsPagedResponse() throws Exception {
-        when(emailRepository.findAll(any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(savedEmail), PageRequest.of(0, 5), 1));
+        when(emailService.getAllEmails(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(mockResponse), PageRequest.of(0, 5), 1));
 
         mockMvc.perform(get("/emails")
                         .param("page", "0")
@@ -120,7 +127,7 @@ class EmailControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.content[0].fromAddress").value("from@example.com"))
-                .andExpect(jsonPath("$.content[0].toAddress").value("to@example.com"))
+                .andExpect(jsonPath("$.content[0].status").value("QUEUED"))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.size").value(5))
                 .andExpect(jsonPath("$.number").value(0))

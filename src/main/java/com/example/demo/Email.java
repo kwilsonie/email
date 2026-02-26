@@ -1,16 +1,15 @@
 package com.example.demo;
 
-
-
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 
-import java.util.Date;
-
+import java.time.Instant;
 
 @Entity
 @Table(name = "email")
@@ -32,6 +31,18 @@ public class Email {
 
     private String attachments;
     private String signature;
+
+    // -------------------------------------------------------------------------
+    // Delivery lifecycle fields
+    // -------------------------------------------------------------------------
+
+    @Enumerated(EnumType.STRING)
+    private EmailStatus status;
+
+    private Instant statusUpdatedAt;
+
+    /** Null unless status == FAILED. Populated by EmailAsyncProcessor on error. */
+    private String failureReason;
 
     public Email() {}
 
@@ -61,4 +72,13 @@ public class Email {
 
     public String getSignature() { return signature; }
     public void setSignature(String signature) { this.signature = signature; }
+
+    public EmailStatus getStatus() { return status; }
+    public void setStatus(EmailStatus status) { this.status = status; }
+
+    public Instant getStatusUpdatedAt() { return statusUpdatedAt; }
+    public void setStatusUpdatedAt(Instant statusUpdatedAt) { this.statusUpdatedAt = statusUpdatedAt; }
+
+    public String getFailureReason() { return failureReason; }
+    public void setFailureReason(String failureReason) { this.failureReason = failureReason; }
 }
